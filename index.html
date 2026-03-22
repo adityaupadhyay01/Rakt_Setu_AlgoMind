@@ -1105,6 +1105,23 @@ console.log("🔥 Firebase Connected");
 
 <script>
 
+function getCooldownStatus(lastDonationDate) {
+  if (!lastDonationDate) return { eligible: true, daysLeft: 0 };
+
+  const last = lastDonationDate.toDate 
+    ? lastDonationDate.toDate()   // Firestore timestamp
+    : new Date(lastDonationDate); // normal date
+
+  const now = new Date();
+
+  const diffDays = Math.floor((now - last) / (1000 * 60 * 60 * 24));
+  const cooldown = 56;
+
+  return diffDays >= cooldown
+    ? { eligible: true, daysLeft: 0 }
+    : { eligible: false, daysLeft: cooldown - diffDays };
+}
+
 async function downloadDonorReport() {
   const snapshot = await db.collection("donor").get();
 
@@ -1338,113 +1355,6 @@ function enterLanding() {
   document.getElementById('page-landing').style.display = '';
 }
 
-// ──────────────── FORM SUBMIT ────────────────
-function submitRequest() {
-  const name = document.getElementById('req-name').value.trim();
-  const city = document.getElementById('req-city').value.trim() || 'Delhi';
-  const blood = document.querySelector('input[name="req-bg"]:checked')?.value || 'O+';
-  const urgency = document.querySelector('input[name="urgency"]:checked')?.value || 'normal';
-
-  showProgress();
-  toggleBtnLoading('reqBtnText','reqSpinner',true);
-
-  setTimeout(() => {
-    hideProgress();
-    toggleBtnLoading('reqBtnText','reqSpinner',false);
-    document.getElementById('reqBtnText').textContent = '✅ Donors Found!';
-
-    const matching = mockDonors.filter(d =>
-      d.blood === blood || d.blood.replace(/[+-]/,'') === blood.replace(/[+-]/,'')
-    );
-    
-    const isEmerg = urgency === 'emergency';
-
-    const resultCard = document.getElementById('donorResultsCard');
-    const noCard = document.getElementById('noDonorsCard');
-
-    if (matching.length) {
-      resultCard.style.display = 'block';
-      noCard.style.display = 'none';
-      document.getElementById('matchBanner').textContent = isEmerg
-        ? '🚨 Emergency mode — prioritizing nearest donors'
-        : '⭐ Best match found near you!';
-      renderDonors(matching, city, isEmerg);
-    } else {
-      resultCard.style.display = 'none';
-      noCard.style.display = 'block';
-    }
-    resultCard.scrollIntoView({ behavior:'smooth', block:'nearest' });
-  }, 1800);
-}
-
-function submitDonate() {
-  const name = document.getElementById('don-name').value.trim();
-  const city = document.getElementById('don-city').value.trim();
-  const phone = document.getElementById('don-phone').value.trim();
-  const blood = document.querySelector('input[name="don-bg"]:checked')?.value;
-
-  if (!name || !city || !phone) {
-    alert("❌ Fill all fields");
-    return;
-  }
-
-  db.collection("donor").add({
-    name: name,
-    city: city,
-    phone: phone,
-    blood: blood,
-    createdAt: new Date()
-  })
-  .then(() => {
-  alert("✅ Donor Registered!");
-
-  document.getElementById('don-name').value = "";
-  document.getElementById('don-city').value = "";
-  document.getElementById('don-phone').value = "";
-})
-    .catch((err) => console.error(err));
-}
-
-function toggleBtnLoading(textId, spinnerId, on) {
-  document.getElementById(textId).style.display = on ? 'none' : '';
-  document.getElementById(spinnerId).style.display = on ? 'block' : 'none';
-}
-
-function callDonor(phone) {
-  alert(`📞 Calling ${phone}…\n\n(In a real app, this would initiate a call or share contact details.)`)
-}  async function submitRequest() {
-  const city = document.getElementById('req-city').value.trim() || 'Delhi';
-  const blood = document.querySelector('input[name="req-bg"]:checked')?.value || 'O+';
-  const urgency = document.querySelector('input[name="urgency"]:checked')?.value || 'normal';
-
-  showProgress();
-  toggleBtnLoading('reqBtnText','reqSpinner',true);
-
-  const snapshot = await db.collection("donor").get();
-
-  const allDonors = [];
-  snapshot.forEach(doc => allDonors.push(doc.data()));
-
-  const matching = allDonors.filter(d =>
-    d.blood && d.blood.toUpperCase() === blood.toUpperCase()
-  );
-
-  const resultCard = document.getElementById('donorResultsCard');
-  const noCard = document.getElementById('noDonorsCard');
-
-  if (matching.length) {
-    resultCard.style.display = 'block';
-    noCard.style.display = 'none';
-    renderDonors(matching, city, urgency === 'emergency');
-  } else {
-    resultCard.style.display = 'none';
-    noCard.style.display = 'block';
-  }
-
-  hideProgress();
-  toggleBtnLoading('reqBtnText','reqSpinner',false);
-}
-
 // ──────────────── PROGRESS BAR ────────────────
 let _progTimer;
 function showProgress() {
@@ -1512,12 +1422,50 @@ function login() {
     });
 }
 
-// ──────────────── INIT ────────────────
+// 🔴 sab functions pehle
+
+function getCooldownStatus(lastDonation) {
+  if (!lastDonation) return { eligible: true, daysLeft: 0 };
+
+  const last = new Date(lastDonation);
+  const now = new Date();
+
+  const diffDays = Math.floor((now - last) / (1000 * 60 * 60 * 24));
+  const remaining = 90 - diffDays;
+
+  return {
+    eligible: remaining <= 0,
+    daysLeft: remaining > 0 ? remaining : 0
+  };
+}
+
+
+// 🔴 UPDATED REQUEST FUNCTION
+const cooldown = getCooldownStatus(d.lastDonation);
+async function submitRequest() {
+  const city = document.getElementById('req-city').value.trim() || 'Delhi';
+  const blood = document.querySelector('input[name="req-bg"]:checked')?.value || 'O+';
+
+  const snapshot = await db.collection("donor").get();
+
+  const allDonors = [];
+  snapshot.forEach(doc => allDonors.push(doc.data()));
+
+  const matching = allDonors.filter(d => {
+    const sameBlood = d.blood?.toUpperCase() === blood.toUpperCase();
+    const cooldown = getCooldownStatus(d.lastDonation);
+
+   return sameBlood;
+
+  renderDonors(matching, city, false);
+}
+
+// ──────────────── INIT ────────────────`
 window.onload = () => {
   renderDashFeed();
   renderBloodAvail();
   loadDonors();
-};
+}
 </script>
 </body>
 </html>
